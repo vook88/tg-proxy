@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -243,4 +244,34 @@ func (d *DB) GetPendingSecretByUser(telegramID int64) (*Secret, error) {
 func (d *DB) DeleteSecret(id int64) error {
 	_, err := d.db.Exec("DELETE FROM secrets WHERE id = ?", id)
 	return err
+}
+
+// SecretLabelToUser maps proxy config labels (e.g. "u1") back to username and device.
+func (d *DB) SecretLabelToUser() (map[string]string, error) {
+	rows, err := d.db.Query(`
+		SELECT s.id, u.username, s.device_name
+		FROM secrets s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.active = 1
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var id int64
+		var username, device string
+		if err := rows.Scan(&id, &username, &device); err != nil {
+			return nil, err
+		}
+		label := fmt.Sprintf("u%d", id)
+		display := "@" + username
+		if device != "" {
+			display += " (" + device + ")"
+		}
+		result[label] = display
+	}
+	return result, rows.Err()
 }

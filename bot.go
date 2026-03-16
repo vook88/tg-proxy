@@ -25,6 +25,16 @@ func NewBot(cfg *Config, db *DB, proxy *ProxyManager) (*Bot, error) {
 
 	slog.Info("bot authorized", "username", api.Self.UserName)
 
+	// Register command menu so users see buttons.
+	commands := tgbotapi.NewSetMyCommands(
+		tgbotapi.BotCommand{Command: "start", Description: "Запросить доступ к прокси"},
+		tgbotapi.BotCommand{Command: "my", Description: "Мои прокси-ссылки"},
+		tgbotapi.BotCommand{Command: "more", Description: "Доп. сессия для устройства"},
+	)
+	if _, err := api.Request(commands); err != nil {
+		slog.Warn("set commands", "err", err)
+	}
+
 	return &Bot{api: api, cfg: cfg, db: db, proxy: proxy}, nil
 }
 
@@ -53,6 +63,9 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		switch msg.Command() {
 		case "users":
 			b.cmdUsers(msg)
+			return
+		case "stats":
+			b.cmdStats(msg)
 			return
 		case "revoke":
 			b.cmdRevoke(msg)
@@ -206,6 +219,38 @@ func (b *Bot) cmdUsers(msg *tgbotapi.Message) {
 	}
 
 	b.send(msg.Chat.ID, "Пользователи:\n\n"+strings.Join(lines, "\n"))
+}
+
+func (b *Bot) cmdStats(msg *tgbotapi.Message) {
+	stats, err := FetchProxyStats(b.cfg.MetricsURL)
+	if err != nil {
+		slog.Error("fetch stats", "err", err)
+		b.send(msg.Chat.ID, "Не удалось получить статистику. Прокси не запущен?")
+		return
+	}
+
+	if len(stats) == 0 {
+		b.send(msg.Chat.ID, "Нет активных пользователей.")
+		return
+	}
+
+	labelMap, _ := b.db.SecretLabelToUser()
+
+	var lines []string
+	for _, s := range stats {
+		name := labelMap[s.Label]
+		if name == "" {
+			name = s.Label
+		}
+		status := "⚫"
+		if s.Current > 0 {
+			status = "🟢"
+		}
+		lines = append(lines, fmt.Sprintf("%s %s — %d подкл, %s",
+			status, name, s.Connects, FormatBytes(s.BytesTotal)))
+	}
+
+	b.send(msg.Chat.ID, "Статистика прокси:\n\n"+strings.Join(lines, "\n"))
 }
 
 func (b *Bot) cmdRevoke(msg *tgbotapi.Message) {

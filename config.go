@@ -30,6 +30,9 @@ type Config struct {
 
 	// Command to reload mtprotoproxy (SIGUSR2).
 	ReloadCmd string
+
+	// URL to fetch Prometheus metrics from mtprotoproxy.
+	MetricsURL string
 }
 
 func LoadConfig() (*Config, error) {
@@ -81,6 +84,11 @@ func LoadConfig() (*Config, error) {
 		reloadCmd = "systemctl kill -s SIGUSR2 mtprotoproxy"
 	}
 
+	metricsURL := os.Getenv("METRICS_URL")
+	if metricsURL == "" {
+		metricsURL = "http://127.0.0.1:8888/"
+	}
+
 	return &Config{
 		BotToken:    token,
 		AdminID:     adminID,
@@ -90,5 +98,6 @@ func LoadConfig() (*Config, error) {
 		ConfigFile:  configFile,
 		FakeTLSHost: fakeTLSHost,
 		ReloadCmd:   reloadCmd,
+		MetricsURL:  metricsURL,
 	}, nil
 }

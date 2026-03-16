@@ -64,6 +64,9 @@ MODES = {
 }
 
 TLS_DOMAIN = %q
+
+METRICS_PORT = 8888
+METRICS_WHITELIST = ["127.0.0.1"]
 `, p.cfg.ServerPort, strings.Join(users, "\n"), p.cfg.FakeTLSHost)
 
 	if err := os.WriteFile(p.cfg.ConfigFile, []byte(config), 0640); err != nil {
