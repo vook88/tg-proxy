@@ -1,0 +1,13 @@
+[Unit]
+Description=Telegram Proxy Bot
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tg-proxy
+EnvironmentFile=/etc/tg-proxy/env
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
