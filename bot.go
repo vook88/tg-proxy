@@ -262,16 +262,12 @@ func (b *Bot) cmdStats(msg *tgbotapi.Message) {
 		if !known {
 			continue // skip orphaned metrics from deleted secrets
 		}
-		status := "⚫"
 		if s.Current > 0 {
-			status = "🟢"
+			lines = append(lines, fmt.Sprintf("🟢 %s — %s",
+				name, FormatBytes(s.BytesTotal)))
+		} else {
+			lines = append(lines, fmt.Sprintf("⚫ %s — офлайн", name))
 		}
-		connInfo := fmt.Sprintf("%d подкл", s.Connects)
-		if s.Current > 0 {
-			connInfo += fmt.Sprintf(" (%d сейчас)", s.Current)
-		}
-		lines = append(lines, fmt.Sprintf("%s %s — %s, %s",
-			status, name, connInfo, FormatBytes(s.BytesTotal)))
 	}
 
 	if len(lines) == 0 {
