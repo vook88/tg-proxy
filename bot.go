@@ -97,6 +97,23 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 	if err == nil {
 		switch user.Status {
 		case "approved":
+			// If approved but no active secrets (e.g. after /revoke), create one.
+			secrets, _ := b.db.GetSecretsByTelegramID(msg.From.ID)
+			if len(secrets) == 0 {
+				hexSecret, err := b.proxy.GenerateSecret()
+				if err != nil {
+					slog.Error("generate secret", "err", err)
+					b.send(msg.Chat.ID, "Ошибка, попробуй позже.")
+					return
+				}
+				b.db.CreateSecret(user.ID, hexSecret, "", true)
+				if err := b.proxy.SyncConfig(); err != nil {
+					slog.Error("sync after re-issue", "err", err)
+				}
+				link := b.proxy.ProxyLink(hexSecret)
+				b.send(msg.Chat.ID, fmt.Sprintf("Новый прокси создан:\n\n%s", link))
+				return
+			}
 			b.send(msg.Chat.ID, "У тебя уже есть доступ. Используй /my чтобы увидеть свои прокси.")
 		case "pending":
 			b.send(msg.Chat.ID, "Твоя заявка на рассмотрении. Подожди немного.")
