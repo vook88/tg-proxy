@@ -22,14 +22,14 @@ type Config struct {
 	// Port on which mtg listens.
 	ServerPort int
 
-	// Path to the file where active secrets are written for mtg.
-	SecretsFile string
+	// Path to mtprotoproxy config.py file.
+	ConfigFile string
 
 	// Hostname used for fake-TLS SNI (e.g. "google.com").
 	FakeTLSHost string
 
-	// Command to restart mtg after secrets change.
-	RestartCmd string
+	// Command to reload mtprotoproxy (SIGUSR2).
+	ReloadCmd string
 }
 
 func LoadConfig() (*Config, error) {
@@ -66,9 +66,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("SERVER_PORT must be a number: %w", err)
 	}
 
-	secretsFile := os.Getenv("SECRETS_FILE")
-	if secretsFile == "" {
-		secretsFile = "/etc/mtg/secrets.txt"
+	configFile := os.Getenv("CONFIG_FILE")
+	if configFile == "" {
+		configFile = "/opt/mtprotoproxy/config.py"
 	}
 
 	fakeTLSHost := os.Getenv("FAKE_TLS_HOST")
@@ -76,9 +76,9 @@ func LoadConfig() (*Config, error) {
 		fakeTLSHost = "google.com"
 	}
 
-	restartCmd := os.Getenv("RESTART_CMD")
-	if restartCmd == "" {
-		restartCmd = "systemctl restart mtg"
+	reloadCmd := os.Getenv("RELOAD_CMD")
+	if reloadCmd == "" {
+		reloadCmd = "systemctl kill -s SIGUSR2 mtprotoproxy"
 	}
 
 	return &Config{
@@ -87,8 +87,8 @@ func LoadConfig() (*Config, error) {
 		DBPath:      dbPath,
 		ServerHost:  serverHost,
 		ServerPort:  port,
-		SecretsFile: secretsFile,
+		ConfigFile:  configFile,
 		FakeTLSHost: fakeTLSHost,
-		RestartCmd:  restartCmd,
+		ReloadCmd:   reloadCmd,
 	}, nil
 }

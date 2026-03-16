@@ -29,8 +29,8 @@ func main() {
 
 	proxy := NewProxyManager(cfg, db)
 
-	// Sync secrets on startup in case they got out of sync.
-	if err := proxy.SyncAndRestart(); err != nil {
+	// Sync proxy config on startup in case it got out of sync.
+	if err := proxy.SyncConfig(); err != nil {
 		slog.Warn("initial sync failed", "err", err)
 	}
 

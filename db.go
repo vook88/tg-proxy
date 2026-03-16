@@ -19,7 +19,6 @@ type Secret struct {
 	ID         int64
 	UserID     int64
 	HexSecret  string
-	B64Secret  string
 	DeviceName string
 	Active     bool
 	CreatedAt  time.Time
@@ -60,7 +59,6 @@ func migrate(db *sql.DB) error {
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id     INTEGER NOT NULL REFERENCES users(id),
 			hex_secret  TEXT NOT NULL,
-			b64_secret  TEXT NOT NULL,
 			device_name TEXT NOT NULL DEFAULT '',
 			active      BOOLEAN NOT NULL DEFAULT 0,
 			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -109,10 +107,10 @@ func (d *DB) UpdateUserStatus(telegramID int64, status string) error {
 	return err
 }
 
-func (d *DB) CreateSecret(userID int64, hexSecret, b64Secret, deviceName string, active bool) (*Secret, error) {
+func (d *DB) CreateSecret(userID int64, hexSecret, deviceName string, active bool) (*Secret, error) {
 	res, err := d.db.Exec(
-		"INSERT INTO secrets (user_id, hex_secret, b64_secret, device_name, active) VALUES (?, ?, ?, ?, ?)",
-		userID, hexSecret, b64Secret, deviceName, active,
+		"INSERT INTO secrets (user_id, hex_secret, device_name, active) VALUES (?, ?, ?, ?)",
+		userID, hexSecret, deviceName, active,
 	)
 	if err != nil {
 		return nil, err
@@ -122,7 +120,6 @@ func (d *DB) CreateSecret(userID int64, hexSecret, b64Secret, deviceName string,
 		ID:         id,
 		UserID:     userID,
 		HexSecret:  hexSecret,
-		B64Secret:  b64Secret,
 		DeviceName: deviceName,
 		Active:     active,
 		CreatedAt:  time.Now(),
@@ -136,7 +133,7 @@ func (d *DB) ActivateSecret(id int64) error {
 
 func (d *DB) GetSecretsByTelegramID(telegramID int64) ([]Secret, error) {
 	rows, err := d.db.Query(`
-		SELECT s.id, s.user_id, s.hex_secret, s.b64_secret, s.device_name, s.active, s.created_at
+		SELECT s.id, s.user_id, s.hex_secret, s.device_name, s.active, s.created_at
 		FROM secrets s
 		JOIN users u ON u.id = s.user_id
 		WHERE u.telegram_id = ? AND s.active = 1
@@ -149,7 +146,7 @@ func (d *DB) GetSecretsByTelegramID(telegramID int64) ([]Secret, error) {
 	var secrets []Secret
 	for rows.Next() {
 		var s Secret
-		if err := rows.Scan(&s.ID, &s.UserID, &s.HexSecret, &s.B64Secret, &s.DeviceName, &s.Active, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.UserID, &s.HexSecret, &s.DeviceName, &s.Active, &s.CreatedAt); err != nil {
 			return nil, err
 		}
 		secrets = append(secrets, s)
@@ -158,7 +155,7 @@ func (d *DB) GetSecretsByTelegramID(telegramID int64) ([]Secret, error) {
 }
 
 func (d *DB) GetAllActiveSecrets() ([]Secret, error) {
-	rows, err := d.db.Query("SELECT id, user_id, hex_secret, b64_secret, device_name, active, created_at FROM secrets WHERE active = 1")
+	rows, err := d.db.Query("SELECT id, user_id, hex_secret, device_name, active, created_at FROM secrets WHERE active = 1")
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +164,7 @@ func (d *DB) GetAllActiveSecrets() ([]Secret, error) {
 	var secrets []Secret
 	for rows.Next() {
 		var s Secret
-		if err := rows.Scan(&s.ID, &s.UserID, &s.HexSecret, &s.B64Secret, &s.DeviceName, &s.Active, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.UserID, &s.HexSecret, &s.DeviceName, &s.Active, &s.CreatedAt); err != nil {
 			return nil, err
 		}
 		secrets = append(secrets, s)
@@ -231,12 +228,12 @@ func (d *DB) ListApprovedUsers() ([]User, map[int64]int, error) {
 func (d *DB) GetPendingSecretByUser(telegramID int64) (*Secret, error) {
 	s := &Secret{}
 	err := d.db.QueryRow(`
-		SELECT s.id, s.user_id, s.hex_secret, s.b64_secret, s.device_name, s.active, s.created_at
+		SELECT s.id, s.user_id, s.hex_secret, s.device_name, s.active, s.created_at
 		FROM secrets s
 		JOIN users u ON u.id = s.user_id
 		WHERE u.telegram_id = ? AND s.active = 0
 		ORDER BY s.created_at DESC LIMIT 1
-	`, telegramID).Scan(&s.ID, &s.UserID, &s.HexSecret, &s.B64Secret, &s.DeviceName, &s.Active, &s.CreatedAt)
+	`, telegramID).Scan(&s.ID, &s.UserID, &s.HexSecret, &s.DeviceName, &s.Active, &s.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

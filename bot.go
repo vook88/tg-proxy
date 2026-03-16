@@ -130,14 +130,14 @@ func (b *Bot) cmdMore(msg *tgbotapi.Message) {
 	}
 
 	// Pre-create inactive secret.
-	hexSecret, b64Secret, err := b.proxy.GenerateSecret()
+	hexSecret, err := b.proxy.GenerateSecret()
 	if err != nil {
 		slog.Error("generate secret", "err", err)
 		b.send(msg.Chat.ID, "Ошибка генерации, попробуй позже.")
 		return
 	}
 
-	_, err = b.db.CreateSecret(user.ID, hexSecret, b64Secret, deviceName, false)
+	_, err = b.db.CreateSecret(user.ID, hexSecret, deviceName, false)
 	if err != nil {
 		slog.Error("create secret", "err", err)
 		b.send(msg.Chat.ID, "Ошибка, попробуй позже.")
@@ -228,7 +228,7 @@ func (b *Bot) cmdRevoke(msg *tgbotapi.Message) {
 		return
 	}
 
-	if err := b.proxy.SyncAndRestart(); err != nil {
+	if err := b.proxy.SyncConfig(); err != nil {
 		slog.Error("sync after revoke", "err", err)
 	}
 
@@ -252,7 +252,7 @@ func (b *Bot) cmdKick(msg *tgbotapi.Message) {
 	b.db.DeactivateUserSecrets(telegramID)
 	b.db.UpdateUserStatus(telegramID, "banned")
 
-	if err := b.proxy.SyncAndRestart(); err != nil {
+	if err := b.proxy.SyncConfig(); err != nil {
 		slog.Error("sync after kick", "err", err)
 	}
 
@@ -302,19 +302,19 @@ func (b *Bot) approveUser(cb *tgbotapi.CallbackQuery, telegramID int64) {
 	}
 
 	// Generate first secret.
-	hexSecret, b64Secret, err := b.proxy.GenerateSecret()
+	hexSecret, err := b.proxy.GenerateSecret()
 	if err != nil {
 		slog.Error("generate secret", "err", err)
 		return
 	}
 
-	_, err = b.db.CreateSecret(user.ID, hexSecret, b64Secret, "", true)
+	_, err = b.db.CreateSecret(user.ID, hexSecret, "", true)
 	if err != nil {
 		slog.Error("create secret", "err", err)
 		return
 	}
 
-	if err := b.proxy.SyncAndRestart(); err != nil {
+	if err := b.proxy.SyncConfig(); err != nil {
 		slog.Error("sync after approve", "err", err)
 	}
 
@@ -351,7 +351,7 @@ func (b *Bot) approveSession(cb *tgbotapi.CallbackQuery, telegramID int64) {
 		return
 	}
 
-	if err := b.proxy.SyncAndRestart(); err != nil {
+	if err := b.proxy.SyncConfig(); err != nil {
 		slog.Error("sync after session approve", "err", err)
 	}
 
