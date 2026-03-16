@@ -4,7 +4,7 @@ ARCH = amd64
 
 # Cross-compile for target architecture.
 build:
-	GOOS=linux GOARCH=$(ARCH) go build -o $(BINARY) .
+	GOOS=linux GOARCH=$(ARCH) go build -o $(BINARY) ./cmd/tg-proxy
 
 # First-time server setup: install mtprotoproxy, create dirs, copy env template.
 setup:

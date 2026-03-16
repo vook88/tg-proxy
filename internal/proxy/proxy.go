@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"crypto/rand"
@@ -8,20 +8,22 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"tg-proxy/internal/config"
+	"tg-proxy/internal/db"
 )
 
-type ProxyManager struct {
-	cfg *Config
-	db  *DB
+type Manager struct {
+	cfg *config.Config
+	db  *db.DB
 }
 
-func NewProxyManager(cfg *Config, db *DB) *ProxyManager {
-	return &ProxyManager{cfg: cfg, db: db}
+func NewManager(cfg *config.Config, db *db.DB) *Manager {
+	return &Manager{cfg: cfg, db: db}
 }
 
 // GenerateSecret creates a 16-byte random secret for mtprotoproxy.
-// Returns the 32 hex char secret (stored in config.py and DB).
-func (p *ProxyManager) GenerateSecret() (string, error) {
+func (m *Manager) GenerateSecret() (string, error) {
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
 		return "", fmt.Errorf("generate random bytes: %w", err)
@@ -30,17 +32,16 @@ func (p *ProxyManager) GenerateSecret() (string, error) {
 }
 
 // ProxyLink returns an https://t.me/proxy link for the given hex secret.
-// For fake-TLS the link secret is: ee + raw_secret + hex(domain).
-func (p *ProxyManager) ProxyLink(hexSecret string) string {
-	domainHex := hex.EncodeToString([]byte(p.cfg.FakeTLSHost))
+func (m *Manager) ProxyLink(hexSecret string) string {
+	domainHex := hex.EncodeToString([]byte(m.cfg.FakeTLSHost))
 	linkSecret := "ee" + hexSecret + domainHex
 	return fmt.Sprintf("https://t.me/proxy?server=%s&port=%d&secret=%s",
-		p.cfg.ServerHost, p.cfg.ServerPort, linkSecret)
+		m.cfg.ServerHost, m.cfg.ServerPort, linkSecret)
 }
 
 // SyncConfig writes all active secrets to mtprotoproxy config.py and reloads the proxy.
-func (p *ProxyManager) SyncConfig() error {
-	secrets, err := p.db.GetAllActiveSecrets()
+func (m *Manager) SyncConfig() error {
+	secrets, err := m.db.GetAllActiveSecrets()
 	if err != nil {
 		return fmt.Errorf("get active secrets: %w", err)
 	}
@@ -51,7 +52,7 @@ func (p *ProxyManager) SyncConfig() error {
 		users = append(users, fmt.Sprintf("    %q: %q,", label, s.HexSecret))
 	}
 
-	config := fmt.Sprintf(`PORT = %d
+	cfg := fmt.Sprintf(`PORT = %d
 
 USERS = {
 %s
@@ -67,9 +68,9 @@ TLS_DOMAIN = %q
 
 METRICS_PORT = 8888
 METRICS_WHITELIST = ["127.0.0.1"]
-`, p.cfg.ServerPort, strings.Join(users, "\n"), p.cfg.FakeTLSHost)
+`, m.cfg.ServerPort, strings.Join(users, "\n"), m.cfg.FakeTLSHost)
 
-	if err := os.WriteFile(p.cfg.ConfigFile, []byte(config), 0640); err != nil {
+	if err := os.WriteFile(m.cfg.ConfigFile, []byte(cfg), 0640); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
@@ -82,8 +83,7 @@ METRICS_WHITELIST = ["127.0.0.1"]
 	}
 
 	// Send SIGUSR2 to reload config without dropping connections.
-	if err := exec.Command("sh", "-c", p.cfg.ReloadCmd).Run(); err != nil {
-		// If reload fails (proxy not running), try restart.
+	if err := exec.Command("sh", "-c", m.cfg.ReloadCmd).Run(); err != nil {
 		slog.Warn("reload failed, restarting", "err", err)
 		if err := exec.Command("sh", "-c", "systemctl restart mtprotoproxy").Run(); err != nil {
 			return fmt.Errorf("restart proxy: %w", err)

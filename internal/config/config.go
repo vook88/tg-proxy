@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"fmt"
@@ -7,35 +7,18 @@ import (
 )
 
 type Config struct {
-	// Telegram bot token from @BotFather.
-	BotToken string
-
-	// Telegram ID of the admin who approves requests.
-	AdminID int64
-
-	// Path to the SQLite database file.
-	DBPath string
-
-	// Public IP or domain of the proxy server.
-	ServerHost string
-
-	// Port on which mtg listens.
-	ServerPort int
-
-	// Path to mtprotoproxy config.py file.
-	ConfigFile string
-
-	// Hostname used for fake-TLS SNI (e.g. "google.com").
+	BotToken    string
+	AdminID     int64
+	DBPath      string
+	ServerHost  string
+	ServerPort  int
+	ConfigFile  string
 	FakeTLSHost string
-
-	// Command to reload mtprotoproxy (SIGUSR2).
-	ReloadCmd string
-
-	// URL to fetch Prometheus metrics from mtprotoproxy.
-	MetricsURL string
+	ReloadCmd   string
+	MetricsURL  string
 }
 
-func LoadConfig() (*Config, error) {
+func Load() (*Config, error) {
 	token := os.Getenv("BOT_TOKEN")
 	if token == "" {
 		return nil, fmt.Errorf("BOT_TOKEN is required")

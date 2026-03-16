@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"bufio"
@@ -9,17 +9,14 @@ import (
 	"strings"
 )
 
-// UserStats holds parsed Prometheus metrics for a single proxy user.
 type UserStats struct {
-	Label       string
-	Connects    int64
-	Current     int64
-	BytesTotal  int64
-	MsgsTotal   int64
+	Label      string
+	Connects   int64
+	Current    int64
+	BytesTotal int64
 }
 
-// FetchProxyStats fetches and parses per-user metrics from mtprotoproxy Prometheus endpoint.
-func FetchProxyStats(metricsURL string) ([]UserStats, error) {
+func FetchStats(metricsURL string) ([]UserStats, error) {
 	resp, err := http.Get(metricsURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetch metrics: %w", err)
@@ -39,7 +36,6 @@ func parseMetrics(r io.Reader) ([]UserStats, error) {
 			continue
 		}
 
-		// Parse lines like: mtprotoproxy_user_connects{user="u1"} 5
 		name, label, value := parseMetricLine(line)
 		if label == "" {
 			continue
@@ -60,8 +56,6 @@ func parseMetrics(r io.Reader) ([]UserStats, error) {
 			us.Connects = v
 		case strings.HasSuffix(name, "_user_octets") && !strings.HasSuffix(name, "_from") && !strings.HasSuffix(name, "_to"):
 			us.BytesTotal = v
-		case strings.HasSuffix(name, "_user_msgs") && !strings.HasSuffix(name, "_from") && !strings.HasSuffix(name, "_to"):
-			us.MsgsTotal = v
 		}
 	}
 
@@ -72,7 +66,6 @@ func parseMetrics(r io.Reader) ([]UserStats, error) {
 	return result, scanner.Err()
 }
 
-// parseMetricLine parses "metric_name{user="label"} value"
 func parseMetricLine(line string) (name, label, value string) {
 	braceStart := strings.Index(line, "{")
 	if braceStart < 0 {
@@ -85,7 +78,6 @@ func parseMetricLine(line string) (name, label, value string) {
 		return "", "", ""
 	}
 
-	// Extract user="..." from inside braces.
 	inside := line[braceStart+1 : braceEnd]
 	for _, part := range strings.Split(inside, ",") {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
@@ -98,7 +90,6 @@ func parseMetricLine(line string) (name, label, value string) {
 	return name, label, value
 }
 
-// FormatBytes formats bytes into a human-readable string.
 func FormatBytes(b int64) string {
 	switch {
 	case b >= 1<<30:

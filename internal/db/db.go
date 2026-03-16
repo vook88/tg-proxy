@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"database/sql"
@@ -26,28 +26,28 @@ type Secret struct {
 }
 
 type DB struct {
-	db *sql.DB
+	conn *sql.DB
 }
 
-func NewDB(path string) (*DB, error) {
-	db, err := sql.Open("sqlite", path)
+func Open(path string) (*DB, error) {
+	conn, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	if _, err := conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, err
 	}
 
-	if err := migrate(db); err != nil {
+	if err := migrate(conn); err != nil {
 		return nil, err
 	}
 
-	return &DB{db: db}, nil
+	return &DB{conn: conn}, nil
 }
 
-func migrate(db *sql.DB) error {
-	_, err := db.Exec(`
+func migrate(conn *sql.DB) error {
+	_, err := conn.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
 			telegram_id INTEGER UNIQUE NOT NULL,
@@ -69,7 +69,7 @@ func migrate(db *sql.DB) error {
 }
 
 func (d *DB) CreateUser(telegramID int64, username string) (*User, error) {
-	res, err := d.db.Exec(
+	res, err := d.conn.Exec(
 		"INSERT INTO users (telegram_id, username) VALUES (?, ?) ON CONFLICT(telegram_id) DO UPDATE SET username = ?",
 		telegramID, username, username,
 	)
@@ -93,7 +93,7 @@ func (d *DB) CreateUser(telegramID int64, username string) (*User, error) {
 
 func (d *DB) GetUserByTelegramID(telegramID int64) (*User, error) {
 	u := &User{}
-	err := d.db.QueryRow(
+	err := d.conn.QueryRow(
 		"SELECT id, telegram_id, username, status, created_at FROM users WHERE telegram_id = ?",
 		telegramID,
 	).Scan(&u.ID, &u.TelegramID, &u.Username, &u.Status, &u.CreatedAt)
@@ -104,12 +104,12 @@ func (d *DB) GetUserByTelegramID(telegramID int64) (*User, error) {
 }
 
 func (d *DB) UpdateUserStatus(telegramID int64, status string) error {
-	_, err := d.db.Exec("UPDATE users SET status = ? WHERE telegram_id = ?", status, telegramID)
+	_, err := d.conn.Exec("UPDATE users SET status = ? WHERE telegram_id = ?", status, telegramID)
 	return err
 }
 
 func (d *DB) CreateSecret(userID int64, hexSecret, deviceName string, active bool) (*Secret, error) {
-	res, err := d.db.Exec(
+	res, err := d.conn.Exec(
 		"INSERT INTO secrets (user_id, hex_secret, device_name, active) VALUES (?, ?, ?, ?)",
 		userID, hexSecret, deviceName, active,
 	)
@@ -128,12 +128,12 @@ func (d *DB) CreateSecret(userID int64, hexSecret, deviceName string, active boo
 }
 
 func (d *DB) ActivateSecret(id int64) error {
-	_, err := d.db.Exec("UPDATE secrets SET active = 1 WHERE id = ?", id)
+	_, err := d.conn.Exec("UPDATE secrets SET active = 1 WHERE id = ?", id)
 	return err
 }
 
 func (d *DB) GetSecretsByTelegramID(telegramID int64) ([]Secret, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.conn.Query(`
 		SELECT s.id, s.user_id, s.hex_secret, s.device_name, s.active, s.created_at
 		FROM secrets s
 		JOIN users u ON u.id = s.user_id
@@ -156,7 +156,7 @@ func (d *DB) GetSecretsByTelegramID(telegramID int64) ([]Secret, error) {
 }
 
 func (d *DB) GetAllActiveSecrets() ([]Secret, error) {
-	rows, err := d.db.Query("SELECT id, user_id, hex_secret, device_name, active, created_at FROM secrets WHERE active = 1")
+	rows, err := d.conn.Query("SELECT id, user_id, hex_secret, device_name, active, created_at FROM secrets WHERE active = 1")
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (d *DB) GetAllActiveSecrets() ([]Secret, error) {
 }
 
 func (d *DB) DeactivateUserSecrets(telegramID int64) (int64, error) {
-	res, err := d.db.Exec(`
+	res, err := d.conn.Exec(`
 		UPDATE secrets SET active = 0
 		WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
 	`, telegramID)
@@ -186,7 +186,7 @@ func (d *DB) DeactivateUserSecrets(telegramID int64) (int64, error) {
 
 func (d *DB) CountActiveSecrets(telegramID int64) (int, error) {
 	var count int
-	err := d.db.QueryRow(`
+	err := d.conn.QueryRow(`
 		SELECT COUNT(*) FROM secrets s
 		JOIN users u ON u.id = s.user_id
 		WHERE u.telegram_id = ? AND s.active = 1
@@ -194,9 +194,8 @@ func (d *DB) CountActiveSecrets(telegramID int64) (int, error) {
 	return count, err
 }
 
-// ListApprovedUsers returns all approved users with their active secret count.
 func (d *DB) ListApprovedUsers() ([]User, map[int64]int, error) {
-	rows, err := d.db.Query("SELECT id, telegram_id, username, status, created_at FROM users WHERE status IN ('approved', 'pending') ORDER BY created_at DESC")
+	rows, err := d.conn.Query("SELECT id, telegram_id, username, status, created_at FROM users WHERE status IN ('approved', 'pending') ORDER BY created_at DESC")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -228,7 +227,7 @@ func (d *DB) ListApprovedUsers() ([]User, map[int64]int, error) {
 
 func (d *DB) GetPendingSecretByUser(telegramID int64) (*Secret, error) {
 	s := &Secret{}
-	err := d.db.QueryRow(`
+	err := d.conn.QueryRow(`
 		SELECT s.id, s.user_id, s.hex_secret, s.device_name, s.active, s.created_at
 		FROM secrets s
 		JOIN users u ON u.id = s.user_id
@@ -242,22 +241,22 @@ func (d *DB) GetPendingSecretByUser(telegramID int64) (*Secret, error) {
 }
 
 func (d *DB) DeleteUser(telegramID int64) error {
-	_, err := d.db.Exec("DELETE FROM secrets WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)", telegramID)
+	_, err := d.conn.Exec("DELETE FROM secrets WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)", telegramID)
 	if err != nil {
 		return err
 	}
-	_, err = d.db.Exec("DELETE FROM users WHERE telegram_id = ?", telegramID)
+	_, err = d.conn.Exec("DELETE FROM users WHERE telegram_id = ?", telegramID)
 	return err
 }
 
 func (d *DB) DeleteSecret(id int64) error {
-	_, err := d.db.Exec("DELETE FROM secrets WHERE id = ?", id)
+	_, err := d.conn.Exec("DELETE FROM secrets WHERE id = ?", id)
 	return err
 }
 
 // SecretLabelToUser maps proxy config labels (e.g. "u1") back to username and device.
 func (d *DB) SecretLabelToUser() (map[string]string, error) {
-	rows, err := d.db.Query(`
+	rows, err := d.conn.Query(`
 		SELECT s.id, u.username, s.device_name
 		FROM secrets s
 		JOIN users u ON u.id = s.user_id
@@ -283,4 +282,23 @@ func (d *DB) SecretLabelToUser() (map[string]string, error) {
 		result[label] = display
 	}
 	return result, rows.Err()
+}
+
+func (d *DB) ResolveUser(input string) (int64, error) {
+	// Try as numeric ID first.
+	if id, err := fmt.Sscanf(input, "%d", new(int64)); err == nil && id == 1 {
+		var tid int64
+		fmt.Sscanf(input, "%d", &tid)
+		if _, err := d.GetUserByTelegramID(tid); err == nil {
+			return tid, nil
+		}
+	}
+
+	// Try as username.
+	var telegramID int64
+	err := d.conn.QueryRow("SELECT telegram_id FROM users WHERE username = ?", input).Scan(&telegramID)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("user not found")
+	}
+	return telegramID, err
 }

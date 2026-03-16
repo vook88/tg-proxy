@@ -1,23 +1,25 @@
-package main
+package bot
 
 import (
-	"database/sql"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
+
+	"tg-proxy/internal/config"
+	"tg-proxy/internal/db"
+	"tg-proxy/internal/proxy"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type Bot struct {
 	api   *tgbotapi.BotAPI
-	cfg   *Config
-	db    *DB
-	proxy *ProxyManager
+	cfg   *config.Config
+	db    *db.DB
+	proxy *proxy.Manager
 }
 
-func NewBot(cfg *Config, db *DB, proxy *ProxyManager) (*Bot, error) {
+func New(cfg *config.Config, db *db.DB, proxy *proxy.Manager) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(cfg.BotToken)
 	if err != nil {
 		return nil, fmt.Errorf("create bot: %w", err)
@@ -25,7 +27,6 @@ func NewBot(cfg *Config, db *DB, proxy *ProxyManager) (*Bot, error) {
 
 	slog.Info("bot authorized", "username", api.Self.UserName)
 
-	// Register command menu so users see buttons.
 	commands := tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "start", Description: "Запросить доступ к прокси"},
 		tgbotapi.BotCommand{Command: "my", Description: "Мои прокси-ссылки"},
@@ -58,7 +59,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Admin commands.
 	if msg.From.ID == b.cfg.AdminID {
 		switch msg.Command() {
 		case "users":
@@ -79,7 +79,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		}
 	}
 
-	// User commands.
 	switch msg.Command() {
 	case "start":
 		b.cmdStart(msg)
@@ -97,7 +96,6 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 	if err == nil {
 		switch user.Status {
 		case "approved":
-			// If approved but no active secrets (e.g. after /revoke), create one.
 			secrets, _ := b.db.GetSecretsByTelegramID(msg.From.ID)
 			if len(secrets) == 0 {
 				hexSecret, err := b.proxy.GenerateSecret()
@@ -137,7 +135,6 @@ func (b *Bot) cmdStart(msg *tgbotapi.Message) {
 
 	b.send(msg.Chat.ID, "Заявка отправлена! Подожди пока администратор её рассмотрит.")
 
-	// Notify admin.
 	text := fmt.Sprintf("Новая заявка на доступ:\n\nПользователь: @%s\nID: %d", username, msg.From.ID)
 	adminMsg := tgbotapi.NewMessage(b.cfg.AdminID, text)
 	adminMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
@@ -162,7 +159,6 @@ func (b *Bot) cmdMore(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Pre-create inactive secret.
 	hexSecret, err := b.proxy.GenerateSecret()
 	if err != nil {
 		slog.Error("generate secret", "err", err)
@@ -181,7 +177,6 @@ func (b *Bot) cmdMore(msg *tgbotapi.Message) {
 
 	b.send(msg.Chat.ID, fmt.Sprintf("Запрос на доп. сессию (%s) отправлен.", deviceName))
 
-	// Notify admin.
 	username := user.Username
 	text := fmt.Sprintf("Запрос доп. сессии:\n\nПользователь: @%s\nУстройство: %s\nАктивных сессий: %d", username, deviceName, count)
 	adminMsg := tgbotapi.NewMessage(b.cfg.AdminID, text)
@@ -242,7 +237,7 @@ func (b *Bot) cmdUsers(msg *tgbotapi.Message) {
 }
 
 func (b *Bot) cmdStats(msg *tgbotapi.Message) {
-	stats, err := FetchProxyStats(b.cfg.MetricsURL)
+	stats, err := proxy.FetchStats(b.cfg.MetricsURL)
 	if err != nil {
 		slog.Error("fetch stats", "err", err)
 		b.send(msg.Chat.ID, "Не удалось получить статистику. Прокси не запущен?")
@@ -260,11 +255,11 @@ func (b *Bot) cmdStats(msg *tgbotapi.Message) {
 	for _, s := range stats {
 		name, known := labelMap[s.Label]
 		if !known {
-			continue // skip orphaned metrics from deleted secrets
+			continue
 		}
 		if s.Current > 0 {
 			lines = append(lines, fmt.Sprintf("🟢 %s — %s",
-				name, FormatBytes(s.BytesTotal)))
+				name, proxy.FormatBytes(s.BytesTotal)))
 		} else {
 			lines = append(lines, fmt.Sprintf("⚫ %s — офлайн", name))
 		}
@@ -285,7 +280,7 @@ func (b *Bot) cmdRevoke(msg *tgbotapi.Message) {
 		return
 	}
 
-	telegramID, err := b.resolveUser(args)
+	telegramID, err := b.db.ResolveUser(strings.TrimPrefix(args, "@"))
 	if err != nil {
 		b.send(msg.Chat.ID, "Пользователь не найден.")
 		return
@@ -313,7 +308,7 @@ func (b *Bot) cmdReset(msg *tgbotapi.Message) {
 		return
 	}
 
-	telegramID, err := b.resolveUser(args)
+	telegramID, err := b.db.ResolveUser(strings.TrimPrefix(args, "@"))
 	if err != nil {
 		b.send(msg.Chat.ID, "Пользователь не найден.")
 		return
@@ -340,7 +335,7 @@ func (b *Bot) cmdKick(msg *tgbotapi.Message) {
 		return
 	}
 
-	telegramID, err := b.resolveUser(args)
+	telegramID, err := b.db.ResolveUser(strings.TrimPrefix(args, "@"))
 	if err != nil {
 		b.send(msg.Chat.ID, "Пользователь не найден.")
 		return
@@ -355,144 +350,6 @@ func (b *Bot) cmdKick(msg *tgbotapi.Message) {
 
 	b.send(msg.Chat.ID, "Пользователь заблокирован, все сессии отозваны.")
 	b.send(telegramID, "Твой доступ заблокирован.")
-}
-
-func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
-	if cb.From.ID != b.cfg.AdminID {
-		b.api.Send(tgbotapi.NewCallback(cb.ID, "Нет доступа"))
-		return
-	}
-
-	parts := strings.SplitN(cb.Data, ":", 2)
-	if len(parts) != 2 {
-		return
-	}
-
-	action := parts[0]
-	telegramID, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return
-	}
-
-	switch action {
-	case "a":
-		b.approveUser(cb, telegramID)
-	case "d":
-		b.denyUser(cb, telegramID)
-	case "sa":
-		b.approveSession(cb, telegramID)
-	case "sd":
-		b.denySession(cb, telegramID)
-	}
-}
-
-func (b *Bot) approveUser(cb *tgbotapi.CallbackQuery, telegramID int64) {
-	user, err := b.db.GetUserByTelegramID(telegramID)
-	if err != nil {
-		b.api.Send(tgbotapi.NewCallback(cb.ID, "Пользователь не найден"))
-		return
-	}
-
-	if err := b.db.UpdateUserStatus(telegramID, "approved"); err != nil {
-		slog.Error("update user status", "err", err)
-		return
-	}
-
-	// Generate first secret.
-	hexSecret, err := b.proxy.GenerateSecret()
-	if err != nil {
-		slog.Error("generate secret", "err", err)
-		return
-	}
-
-	_, err = b.db.CreateSecret(user.ID, hexSecret, "", true)
-	if err != nil {
-		slog.Error("create secret", "err", err)
-		return
-	}
-
-	if err := b.proxy.SyncConfig(); err != nil {
-		slog.Error("sync after approve", "err", err)
-	}
-
-	link := b.proxy.ProxyLink(hexSecret)
-	b.send(telegramID, fmt.Sprintf("Доступ одобрен! Вот твой прокси:\n\n%s\n\nДля доп. устройств используй /more Имя", link))
-
-	// Update admin message.
-	b.api.Send(tgbotapi.NewCallback(cb.ID, "Одобрено"))
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
-		cb.Message.Text+"\n\n✅ Одобрено")
-	b.api.Send(edit)
-}
-
-func (b *Bot) denyUser(cb *tgbotapi.CallbackQuery, telegramID int64) {
-	b.db.UpdateUserStatus(telegramID, "banned")
-
-	b.send(telegramID, "Заявка отклонена.")
-
-	b.api.Send(tgbotapi.NewCallback(cb.ID, "Отклонено"))
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
-		cb.Message.Text+"\n\n❌ Отклонено")
-	b.api.Send(edit)
-}
-
-func (b *Bot) approveSession(cb *tgbotapi.CallbackQuery, telegramID int64) {
-	secret, err := b.db.GetPendingSecretByUser(telegramID)
-	if err != nil {
-		b.api.Send(tgbotapi.NewCallback(cb.ID, "Запрос не найден"))
-		return
-	}
-
-	if err := b.db.ActivateSecret(secret.ID); err != nil {
-		slog.Error("activate secret", "err", err)
-		return
-	}
-
-	if err := b.proxy.SyncConfig(); err != nil {
-		slog.Error("sync after session approve", "err", err)
-	}
-
-	link := b.proxy.ProxyLink(secret.HexSecret)
-	name := secret.DeviceName
-	b.send(telegramID, fmt.Sprintf("Доп. сессия (%s) одобрена!\n\n%s", name, link))
-
-	b.api.Send(tgbotapi.NewCallback(cb.ID, "Одобрено"))
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
-		cb.Message.Text+"\n\n✅ Одобрено")
-	b.api.Send(edit)
-}
-
-func (b *Bot) denySession(cb *tgbotapi.CallbackQuery, telegramID int64) {
-	secret, err := b.db.GetPendingSecretByUser(telegramID)
-	if err == nil {
-		b.db.DeleteSecret(secret.ID)
-	}
-
-	b.send(telegramID, "Запрос на доп. сессию отклонён.")
-
-	b.api.Send(tgbotapi.NewCallback(cb.ID, "Отклонено"))
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID,
-		cb.Message.Text+"\n\n❌ Отклонено")
-	b.api.Send(edit)
-}
-
-func (b *Bot) resolveUser(input string) (int64, error) {
-	input = strings.TrimPrefix(input, "@")
-
-	// Try as numeric ID first.
-	if id, err := strconv.ParseInt(input, 10, 64); err == nil {
-		if _, err := b.db.GetUserByTelegramID(id); err == nil {
-			return id, nil
-		}
-	}
-
-	// Try as username.
-	var telegramID int64
-	err := b.db.db.QueryRow("SELECT telegram_id FROM users WHERE username = ?", input).Scan(&telegramID)
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("user not found")
-	}
-	return telegramID, err
 }
 
 func (b *Bot) send(chatID int64, text string) {
