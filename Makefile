@@ -1,5 +1,5 @@
 BINARY = tg-proxy
-SERVER = root@194.147.114.31
+SERVER = root@YOUR_SERVER_IP
 ARCH = amd64
 
 # Cross-compile for target architecture.
