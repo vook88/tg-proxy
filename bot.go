@@ -258,9 +258,9 @@ func (b *Bot) cmdStats(msg *tgbotapi.Message) {
 
 	var lines []string
 	for _, s := range stats {
-		name := labelMap[s.Label]
-		if name == "" {
-			name = s.Label
+		name, known := labelMap[s.Label]
+		if !known {
+			continue // skip orphaned metrics from deleted secrets
 		}
 		status := "⚫"
 		if s.Current > 0 {
@@ -272,6 +272,11 @@ func (b *Bot) cmdStats(msg *tgbotapi.Message) {
 		}
 		lines = append(lines, fmt.Sprintf("%s %s — %s, %s",
 			status, name, connInfo, FormatBytes(s.BytesTotal)))
+	}
+
+	if len(lines) == 0 {
+		b.send(msg.Chat.ID, "Нет активных пользователей.")
+		return
 	}
 
 	b.send(msg.Chat.ID, "Статистика прокси:\n\n"+strings.Join(lines, "\n"))
