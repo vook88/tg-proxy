@@ -241,6 +241,15 @@ func (d *DB) GetPendingSecretByUser(telegramID int64) (*Secret, error) {
 	return s, nil
 }
 
+func (d *DB) DeleteUser(telegramID int64) error {
+	_, err := d.db.Exec("DELETE FROM secrets WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)", telegramID)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.Exec("DELETE FROM users WHERE telegram_id = ?", telegramID)
+	return err
+}
+
 func (d *DB) DeleteSecret(id int64) error {
 	_, err := d.db.Exec("DELETE FROM secrets WHERE id = ?", id)
 	return err

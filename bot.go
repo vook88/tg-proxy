@@ -70,6 +70,9 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		case "revoke":
 			b.cmdRevoke(msg)
 			return
+		case "reset":
+			b.cmdReset(msg)
+			return
 		case "kick":
 			b.cmdKick(msg)
 			return
@@ -246,8 +249,12 @@ func (b *Bot) cmdStats(msg *tgbotapi.Message) {
 		if s.Current > 0 {
 			status = "🟢"
 		}
-		lines = append(lines, fmt.Sprintf("%s %s — %d подкл, %s",
-			status, name, s.Connects, FormatBytes(s.BytesTotal)))
+		connInfo := fmt.Sprintf("%d подкл", s.Connects)
+		if s.Current > 0 {
+			connInfo += fmt.Sprintf(" (%d сейчас)", s.Current)
+		}
+		lines = append(lines, fmt.Sprintf("%s %s — %s, %s",
+			status, name, connInfo, FormatBytes(s.BytesTotal)))
 	}
 
 	b.send(msg.Chat.ID, "Статистика прокси:\n\n"+strings.Join(lines, "\n"))
@@ -279,6 +286,33 @@ func (b *Bot) cmdRevoke(msg *tgbotapi.Message) {
 
 	b.send(msg.Chat.ID, fmt.Sprintf("Отозвано %d сессий.", count))
 	b.send(telegramID, "Твои прокси были деактивированы администратором.")
+}
+
+func (b *Bot) cmdReset(msg *tgbotapi.Message) {
+	args := strings.TrimSpace(msg.CommandArguments())
+	if args == "" {
+		b.send(msg.Chat.ID, "Укажи пользователя: /reset @username")
+		return
+	}
+
+	telegramID, err := b.resolveUser(args)
+	if err != nil {
+		b.send(msg.Chat.ID, "Пользователь не найден.")
+		return
+	}
+
+	if err := b.db.DeleteUser(telegramID); err != nil {
+		slog.Error("delete user", "err", err)
+		b.send(msg.Chat.ID, "Ошибка.")
+		return
+	}
+
+	if err := b.proxy.SyncConfig(); err != nil {
+		slog.Error("sync after reset", "err", err)
+	}
+
+	b.send(msg.Chat.ID, "Пользователь полностью удалён. Может заново отправить /start.")
+	b.send(telegramID, "Твой доступ сброшен. Отправь /start чтобы запросить заново.")
 }
 
 func (b *Bot) cmdKick(msg *tgbotapi.Message) {
