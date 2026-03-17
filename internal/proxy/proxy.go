@@ -39,7 +39,7 @@ func (m *Manager) ProxyLink(hexSecret string) string {
 		m.cfg.ServerHost, m.cfg.ServerPort, linkSecret)
 }
 
-// SyncConfig writes all active secrets to mtprotoproxy config.py and reloads the proxy.
+// SyncConfig writes all active secrets to telemt config.toml and reloads the proxy.
 func (m *Manager) SyncConfig() error {
 	secrets, err := m.db.GetAllActiveSecrets()
 	if err != nil {
@@ -49,26 +49,45 @@ func (m *Manager) SyncConfig() error {
 	var users []string
 	for _, s := range secrets {
 		label := fmt.Sprintf("u%d", s.ID)
-		users = append(users, fmt.Sprintf("    %q: %q,", label, s.HexSecret))
+		users = append(users, fmt.Sprintf("%s = %q", label, s.HexSecret))
 	}
 
-	cfg := fmt.Sprintf(`PORT = %d
+	cfg := fmt.Sprintf(`[general]
+use_middle_proxy = true
+log_level = "normal"
 
-USERS = {
+[general.modes]
+classic = false
+secure = false
+tls = true
+
+[general.links]
+show = "*"
+public_host = %q
+public_port = %d
+
+[server]
+port = %d
+metrics_port = 8888
+metrics_listen = "127.0.0.1:8888"
+
+[server.api]
+enabled = true
+listen = "127.0.0.1:9091"
+whitelist = ["127.0.0.0/8"]
+
+[[server.listeners]]
+ip = "0.0.0.0"
+
+[censorship]
+tls_domain = %q
+mask = true
+tls_emulation = true
+tls_front_dir = "/var/lib/telemt/tlsfront"
+
+[access.users]
 %s
-}
-
-MODES = {
-    "classic": False,
-    "secure": False,
-    "tls": True,
-}
-
-TLS_DOMAIN = %q
-
-METRICS_PORT = 8888
-METRICS_WHITELIST = ["127.0.0.1"]
-`, m.cfg.ServerPort, strings.Join(users, "\n"), m.cfg.FakeTLSHost)
+`, m.cfg.ServerHost, m.cfg.ServerPort, m.cfg.ServerPort, m.cfg.FakeTLSHost, strings.Join(users, "\n"))
 
 	if err := os.WriteFile(m.cfg.ConfigFile, []byte(cfg), 0640); err != nil {
 		return fmt.Errorf("write config: %w", err)
@@ -78,14 +97,13 @@ METRICS_WHITELIST = ["127.0.0.1"]
 
 	if len(secrets) == 0 {
 		slog.Warn("no active secrets, stopping proxy")
-		_ = exec.Command("sh", "-c", "systemctl stop mtprotoproxy").Run()
+		_ = exec.Command("sh", "-c", "systemctl stop telemt").Run()
 		return nil
 	}
 
-	// Send SIGUSR2 to reload config without dropping connections.
 	if err := exec.Command("sh", "-c", m.cfg.ReloadCmd).Run(); err != nil {
 		slog.Warn("reload failed, restarting", "err", err)
-		if err := exec.Command("sh", "-c", "systemctl restart mtprotoproxy").Run(); err != nil {
+		if err := exec.Command("sh", "-c", "systemctl restart telemt").Run(); err != nil {
 			return fmt.Errorf("restart proxy: %w", err)
 		}
 	}

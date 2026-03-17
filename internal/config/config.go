@@ -45,7 +45,7 @@ func Load() (*Config, error) {
 
 	portStr := os.Getenv("SERVER_PORT")
 	if portStr == "" {
-		portStr = "443"
+		portStr = "9443"
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
@@ -54,17 +54,17 @@ func Load() (*Config, error) {
 
 	configFile := os.Getenv("CONFIG_FILE")
 	if configFile == "" {
-		configFile = "/opt/mtprotoproxy/config.py"
+		configFile = "/etc/telemt/config.toml"
 	}
 
 	fakeTLSHost := os.Getenv("FAKE_TLS_HOST")
 	if fakeTLSHost == "" {
-		fakeTLSHost = "google.com"
+		fakeTLSHost = "cloudflare.com"
 	}
 
 	reloadCmd := os.Getenv("RELOAD_CMD")
 	if reloadCmd == "" {
-		reloadCmd = "systemctl kill -s SIGUSR2 mtprotoproxy"
+		reloadCmd = "systemctl reload telemt"
 	}
 
 	metricsURL := os.Getenv("METRICS_URL")

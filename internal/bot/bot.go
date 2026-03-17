@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"tg-proxy/internal/config"
 	"tg-proxy/internal/db"
@@ -40,6 +41,8 @@ func New(cfg *config.Config, db *db.DB, proxy *proxy.Manager) (*Bot, error) {
 }
 
 func (b *Bot) Run() {
+	go b.monitorIPs()
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
@@ -50,6 +53,35 @@ func (b *Bot) Run() {
 		}
 		if update.CallbackQuery != nil {
 			b.handleCallback(update.CallbackQuery)
+		}
+	}
+}
+
+// monitorIPs periodically checks if any user has multiple unique IPs and alerts admin.
+func (b *Bot) monitorIPs() {
+	alerted := make(map[string]int64) // label -> last alerted IP count
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		stats, err := proxy.FetchStats(b.cfg.MetricsURL)
+		if err != nil {
+			continue
+		}
+		labelMap, _ := b.db.SecretLabelToUser()
+		for _, s := range stats {
+			name, known := labelMap[s.Label]
+			if !known || s.UniqueIPs <= 1 {
+				if s.UniqueIPs <= 1 {
+					delete(alerted, s.Label)
+				}
+				continue
+			}
+			if alerted[s.Label] == s.UniqueIPs {
+				continue
+			}
+			alerted[s.Label] = s.UniqueIPs
+			b.send(b.cfg.AdminID, fmt.Sprintf("⚠️ %s использует %d разных IP одновременно", name, s.UniqueIPs))
 		}
 	}
 }
@@ -258,8 +290,12 @@ func (b *Bot) cmdStats(msg *tgbotapi.Message) {
 			continue
 		}
 		if s.Current > 0 {
-			lines = append(lines, fmt.Sprintf("🟢 %s — %s",
-				name, proxy.FormatBytes(s.BytesTotal)))
+			ipInfo := ""
+			if s.UniqueIPs > 1 {
+				ipInfo = fmt.Sprintf(" [%d IP]", s.UniqueIPs)
+			}
+			lines = append(lines, fmt.Sprintf("🟢 %s — %s%s",
+				name, proxy.FormatBytes(s.BytesTotal), ipInfo))
 		} else {
 			lines = append(lines, fmt.Sprintf("⚫ %s — офлайн", name))
 		}

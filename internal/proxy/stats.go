@@ -14,10 +14,11 @@ type UserStats struct {
 	Connects   int64
 	Current    int64
 	BytesTotal int64
+	UniqueIPs  int64
 }
 
 func FetchStats(metricsURL string) ([]UserStats, error) {
-	resp, err := http.Get(metricsURL)
+	resp, err := http.Get(metricsURL + "metrics")
 	if err != nil {
 		return nil, fmt.Errorf("fetch metrics: %w", err)
 	}
@@ -50,12 +51,16 @@ func parseMetrics(r io.Reader) ([]UserStats, error) {
 		v, _ := strconv.ParseInt(value, 10, 64)
 
 		switch {
-		case strings.HasSuffix(name, "_user_connects_curr"):
+		case strings.HasSuffix(name, "_connections_current"):
 			us.Current = v
-		case strings.HasSuffix(name, "_user_connects"):
+		case strings.HasSuffix(name, "_connections_total"):
 			us.Connects = v
-		case strings.HasSuffix(name, "_user_octets") && !strings.HasSuffix(name, "_from") && !strings.HasSuffix(name, "_to"):
-			us.BytesTotal = v
+		case strings.HasSuffix(name, "_octets_from_client"):
+			us.BytesTotal += v
+		case strings.HasSuffix(name, "_octets_to_client"):
+			us.BytesTotal += v
+		case strings.HasSuffix(name, "_unique_ips_current"):
+			us.UniqueIPs = v
 		}
 	}
 

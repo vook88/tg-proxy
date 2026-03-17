@@ -63,10 +63,10 @@ cat > /etc/tg-proxy/env << 'EOF'
 BOT_TOKEN=токен_от_BotFather
 ADMIN_ID=твой_числовой_telegram_id
 SERVER_HOST=IP_или_домен_сервера
-SERVER_PORT=443
+SERVER_PORT=9443
 DB_PATH=/var/lib/tg-proxy/data.db
 CONFIG_FILE=/opt/mtprotoproxy/config.py
-FAKE_TLS_HOST=google.com
+FAKE_TLS_HOST=cloudflare.com
 RELOAD_CMD=systemctl kill -s SIGUSR2 mtprotoproxy
 METRICS_URL=http://127.0.0.1:8888/
 EOF
@@ -118,15 +118,19 @@ make quick   # пересобрать + залить + рестарт
 
 ```
 tg-proxy/
-├── main.go              — точка входа
-├── config.go            — конфиг из env-переменных
-├── db.go                — SQLite: пользователи и секреты
-├── bot.go               — обработчики команд бота
-├── proxy.go             — генерация секретов, конфиг mtprotoproxy
-├── stats.go             — парсинг Prometheus метрик
-├── Makefile             — сборка и деплой
+├── cmd/tg-proxy/main.go         — точка входа
+├── internal/
+│   ├── bot/
+│   │   ├── bot.go               — обработчики команд бота
+│   │   └── callbacks.go         — обработчики inline-кнопок
+│   ├── config/config.go         — конфиг из env-переменных
+│   ├── db/db.go                 — SQLite: пользователи и секреты
+│   └── proxy/
+│       ├── proxy.go             — генерация секретов, конфиг mtprotoproxy
+│       └── stats.go             — парсинг Prometheus метрик
+├── Makefile                     — сборка и деплой
 └── deploy/
-    ├── tg-proxy.service       — systemd для бота
-    ├── mtprotoproxy.service   — systemd для прокси
-    └── env.example            — пример конфига
+    ├── tg-proxy.service         — systemd для бота
+    ├── mtprotoproxy.service     — systemd для прокси
+    └── env.example              — пример конфига
 ```
